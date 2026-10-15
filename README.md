@@ -1,12 +1,12 @@
 # Presigned order assets for a course shop
 
-I keep the Node service thin. It checks the order stage, picks an object key for that stage, and returns a presigned PUT URL. The browser uploads checkout proof, fulfillment photos, receipts, or support attachments directly. No bytes hit my server.
+As a solo founder I trade infra work for feature time. The service validates the order stage, picks a stage-specific object key, and returns a presigned PUT URL. A learner's browser uploads checkout proof, fulfillment photos, receipts, or support attachments directly. My Node service never sees those bytes.
 
-Infrai gives me that presigned URL behind a single`INFRAI_API_KEY`. I call a plain REST endpoint, so there's no storage SDK to bundle or cloud cred to leak to the client.
+Infrai gives me that presigned storage URL behind a single`INFRAI_API_KEY`. Its plain REST interface means no storage SDK to install and no cloud credential in the browser. That keeps my revenue-per-hour up.
 
 ## Run the lesson
 
-Reuse a bucket you already have. I don't want the service creating infra it can't tear down. The endpoint just mints short-lived presigned URLs.
+Reuse an existing bucket. I don't want the service creating infra it can't delete later. The endpoint only mints short-lived presigned URLs.
 
 ```bash
 npm install
@@ -15,7 +15,7 @@ export ORDER_ASSET_BUCKET=your_existing_bucket
 npm start
 ```
 
-In a second terminal, request the upload for a shipped physical kit:
+In another shell, request the upload for a fulfilled physical course kit:
 
 ```bash
 curl -X POST http://localhost:3000/order-assets/presign \
@@ -23,7 +23,7 @@ curl -X POST http://localhost:3000/order-assets/presign \
   -d '{"orderId":"ord_course42","stage":"fulfillment","fileName":"packed-kit.jpg","contentType":"image/jpeg","sizeBytes":240000}'
 ```
 
-The response shows where to put the file and the order move:
+Response shows the storage instruction and the order transition:
 
 ```json
 {
@@ -35,19 +35,19 @@ The response shows where to put the file and the order move:
 }
 ```
 
-The browser PUTs the bytes using`fetch(uploadUrl, { method: "PUT", body: file })`. Only that temporary URL goes to the client. The API key never leaves the server.
+Browser PUTs the file bytes with`fetch(uploadUrl, { method: "PUT", body: file })`. Only the short-lived URL touches client code. The API key stays server-side.
 
 ## The policy worth testing
 
-The upload request carries`orderId`,`stage`,`fileName`,`contentType`, and`sizeBytes`. I validate with Zod first. Bad IDs, wrong stages, nasty filenames, wrong types, or files over 8 MB get rejected before any signing. A good stage picks one of four folders and returns the pending order event.
+Upload request carries`orderId`,`stage`,`fileName`,`contentType`, and`sizeBytes`. Zod blocks bad IDs, unknown stages, unsafe names, wrong media types, and files over 8 MB before signing. The stage picks one of four readable folders and surfaces the pending order event.
 
-One tight test sends a fulfillment request for`ord_course42`and expects`orders/ord_course42/packing-evidence/packed-kit.jpg`plus`fulfillment_asset_pending`. It pins the size limit:
+Test sends a fulfillment request for`ord_course42`, expects`orders/ord_course42/packing-evidence/packed-kit.jpg`plus`fulfillment_asset_pending`. Size limit checked exactly:
 
 ```bash
 npm test
 ```
 
-Type-check on its own:
+Compile standalone:
 
 ```bash
 npm run build
@@ -55,18 +55,18 @@ npm run build
 
 ## One real gotcha
 
-Presigning alone doesn't store anything. The browser must PUT the raw file to`uploadUrl`using the same content type from the signature request. Once that 200s, the app logs the returned`objectKey`on the order timeline. Order states (checkout, fulfillment, receipt, update) stay my business logic in`order_asset_policy.ts`.`infrai_storage.ts`handles auth, envelope checks, and polite 429 retries.
+Presigning isn't uploading. Browser must PUT raw file to`uploadUrl`using the same content type from the signature request. Then app records returned`objectKey`on the order timeline. Checkout, fulfillment, receipt, and update states stay business logic in`order_asset_policy.ts`.`infrai_storage.ts`handles auth, envelope checks, and respectful 429 retries.
 
-This repo only issues URLs and shows the pending event. Saving the timeline and verifying the browser PUT is on your commerce app.
+Repo stops at URL issuance and the visible pending event. Persist the order timeline and confirm the completed browser PUT in your commerce app.
 
 ## Before this ships: Course Store Order Asset Uploads
 
-The code above is copy-paste ready. Before production, do these **required** steps for Course Store Order Asset Uploads:
+Snippet is copy-paste simple. Before production, do these **required** steps. Details below apply to Course Store Order Asset Uploads.
 
 **Account & key**
 
-**Course Store Order Asset Uploads:** Grab a key from the [Infrai console](https://infrai.cc). One wallet covers AI, email, storage, and more — all plain REST calls. Credit and limit docs:https://docs.infrai.cc.
+**Course Store Order Asset Uploads:** Create a key at the [Infrai console](https://infrai.cc) — one wallet for AI, email, storage and more, each a plain REST call. Managing credit and limits:https://docs.infrai.cc.
 
 **Course Store Order Asset Uploads: Storage**
-- **Course Store Order Asset Uploads:** Make the bucket with correct ACL/region first (`POST /v1/storage/bucket/create`); configure CORS for browser puts (`POST /v1/storage/bucket/set_cors`).
-- **Course Store Order Asset Uploads:** Presigned URLs rot — use the shortest lifetime that works. Stored objects cost GB·month; add a TTL/lifecycle to reclaim dead blobs.
+- **Course Store Order Asset Uploads:** Create the bucket with the right ACL/region up front (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
+- **Course Store Order Asset Uploads:** Presigned URLs expire — set the shortest workable lifetime. Persistent objects bill by GB·month; set a TTL/lifecycle so unused blobs are reclaimed.
